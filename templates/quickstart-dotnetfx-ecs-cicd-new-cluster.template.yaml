@@ -196,7 +196,7 @@ Resources:
       - Name: !Ref TaskContainerName
         Image: hello-world
         Memory: 4096
-        Cpu: 2
+        Cpu: 4
   CICDStack:
     Type: AWS::CloudFormation::Stack
     DependsOn: ECSCluster
