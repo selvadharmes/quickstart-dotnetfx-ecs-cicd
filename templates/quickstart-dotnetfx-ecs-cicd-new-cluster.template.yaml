@@ -105,6 +105,21 @@ Parameters:
     Type: String
     Description: Name of the Amazon ECS service to which the Docker container image is deployed. 
     MaxLength: 255
+  ECSServiceSecurityGroupIds:
+    Description: Security Group ID(s) for the tasks running on the EC2 instance. Every task gets its own ENI if the network configuration is awsvpc.
+    Type: List<AWS::EC2::SecurityGroup::Id>
+  ECSSubnets:
+    Description: Subnets for the EC2 instances - Provide at least two subnets for high availability
+    Type: List<AWS::EC2::Subnet::Id>
+  ECSVPCId:
+    Description: VPC where the cluster will reside. 
+    Type: AWS::EC2::VPC::Id
+  ECSALBSecurityGroupIds:
+    Description: Security Group ID(s) for the ALB in the ECS Cluster
+    Type: List<AWS::EC2::SecurityGroup::Id>
+  ECSClusterApplicationLoadBalancerSubnets:
+    Description: Subnets for the Load balancer - Provide at least two subnets for high availability
+    Type: List<AWS::EC2::Subnet::Id>
   GitHubRepositoryName:
     Type: String
     Description: GitHub repository name
@@ -182,21 +197,76 @@ Resources:
       ClusterName: !Ref EcsClusterName
   ECSService: 
     Type: AWS::ECS::Service
+    DependsOn: 
+      - ECSALBListener
     Properties: 
       Cluster: !Ref ECSCluster
       TaskDefinition: !Ref ECSTaskDefinition
-      SchedulingStrategy: DAEMON
+      LoadBalancers:
+        - ContainerName: !Ref TaskContainerName
+          ContainerPort: 80
+          TargetGroupArn: !Ref ECSALBTargetGroup
+      SchedulingStrategy: REPLICA
       ServiceName: !Ref EcsServiceName
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED #MENTION DISABLED if in private subnet with NAT gateway
+          SecurityGroups: !Ref ECSServiceSecurityGroupIds
+          Subnets: !Ref ECSSubnets
+  ECSApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '60'
+      Scheme: internet-facing
+      SecurityGroups:
+        !Ref ECSALBSecurityGroupIds
+      Subnets:
+        !Ref ECSClusterApplicationLoadBalancerSubnets
+      Type: "application" 
+  ECSALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ECSApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          ForwardConfig: 
+            TargetGroups:
+              - TargetGroupArn: !GetAtt ECSALBTargetGroup.TargetGroupArn
+  ECSALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref ECSVPCId
+      TargetType: ip
+      Protocol: HTTP
+      ProtocolVersion: HTTP1
+      Port: 80
+      Matcher:
+        HttpCode: 200-399
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 30   
   ECSTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
       ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
-      NetworkMode: "none"
+      NetworkMode: awsvpc
       ContainerDefinitions:
       - Name: !Ref TaskContainerName
         Image: hello-world
         Memory: 4096
         Cpu: 4
+        Essential: True
+        PortMappings:
+          - ContainerPort: 80
   CICDStack:
     Type: AWS::CloudFormation::Stack
     DependsOn: ECSCluster
