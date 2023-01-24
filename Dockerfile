@@ -1,9 +1,18 @@
 FROM mcr.microsoft.com/dotnet/framework/sdk:4.8 AS build
 WORKDIR /app
 
-COPY SampleWebApplication .
-RUN powershell nuget restore; msbuild /p:Configuration=Release /p:publishUrl=/out /p:DeployDefaultTarget=WebPublish /p:DeployOnBuild=True /p:WebPublishMethod=FileSystem /p:DeleteExistingFiles=True
+# copy csproj and restore as distinct layers
+COPY SampleWebApplication/*.sln .
+COPY SampleWebApplication/aspnetmvcapp/*.csproj ./aspnetmvcapp/
+COPY SampleWebApplication/aspnetmvcapp/*.config ./aspnetmvcapp/
+RUN nuget restore
+
+# copy everything else and build app
+COPY SampleWebApplication/aspnetmvcapp/. ./aspnetmvcapp/
+WORKDIR /app/aspnetmvcapp
+RUN msbuild /p:Configuration=Release -r:False
+
 
 FROM mcr.microsoft.com/dotnet/framework/aspnet:4.8 AS runtime
-WORKDIR /app
-COPY --from=build /out /inetpub/wwwroot
+WORKDIR /inetpub/wwwroot
+COPY --from=build /app/aspnetmvcapp/. ./
