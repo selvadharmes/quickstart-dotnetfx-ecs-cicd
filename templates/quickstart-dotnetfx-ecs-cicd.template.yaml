@@ -607,6 +607,7 @@ Resources:
                 $srcFileName = "$(Split-Path $key -Leaf)"
 
                 Read-S3Object -BucketName "{{PipelineBucketName}}" -Key $key -File $srcFileName
+                Rename-Item -Path "$tmpFolder\$srcFileName" -NewName "$tmpFolder\$srcFileName.zip"
                 Expand-Archive -Path "$tmpFolder\$srcFileName" -DestinationPath "$srcFolder" -Force
                 
                 Write-Host "*****Building Docker image...*****"
